@@ -1,0 +1,15 @@
+[package]
+name = "rust-raytracing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash = "0.38"
+ash-window = "0.13"
+winit = "0.29"
+glam = { version = "0.29", features = ["bytemuck"] }
+bytemuck = { version = "1.19", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+raw-window-handle = "0.6"
+shaderc = "0.8" # For runtime shader compilation
