@@ -1,3 +1,9 @@
+[env]
+# Force CMake to use dynamic CRT (/MD) when building shaderc from source on Windows
+# This ensures the shaderc C++ library links against the same CRT as Rust
+CXXFLAGS = "/MD"
+CFLAGS = "/MD"
+
 [target.x86_64-pc-windows-msvc]
 rustflags = [
     # Link against the legacy stdio definitions that provide the missing symbols

@@ -4,6 +4,15 @@ fn main() {
     {
         #[cfg(target_env = "msvc")]
         {
+            // Configure CMake to use dynamic CRT (/MD) when building shaderc from source
+            // This must match Rust's default CRT linkage on Windows
+            std::env::set_var("CXXFLAGS", "/MD");
+            std::env::set_var("CFLAGS", "/MD");
+
+            // Tell the shaderc-sys build script to use these flags
+            std::env::set_var("CMAKE_CXX_FLAGS_RELEASE", "/MD /O2 /Ob2 /DNDEBUG");
+            std::env::set_var("CMAKE_C_FLAGS_RELEASE", "/MD /O2 /Ob2 /DNDEBUG");
+
             // Tell rustc to link against legacy_stdio_definitions on Windows MSVC
             // This provides the missing C runtime symbols like __imp_strncpy, __imp_isdigit, etc.
             println!("cargo:rustc-link-lib=legacy_stdio_definitions");
