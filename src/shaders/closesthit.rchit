@@ -5,6 +5,9 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference2 : require
 
+// Hit attributes for triangle intersection (barycentric coordinates)
+hitAttributeEXT vec2 attribs;
+
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 2, set = 0) uniform CameraProperties {
     mat4 viewInverse;
@@ -80,7 +83,7 @@ void main() {
     Vertex v1 = vertices.v[ind.y];
     Vertex v2 = vertices.v[ind.z];
 
-    const vec3 barycentrics = vec3(1.0 - gl_HitTEXT.x - gl_HitTEXT.y, gl_HitTEXT.x, gl_HitTEXT.y);
+    const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
     vec3 n0 = vec3(v0.nrm[0], v0.nrm[1], v0.nrm[2]);
     vec3 n1 = vec3(v1.nrm[0], v1.nrm[1], v1.nrm[2]);
