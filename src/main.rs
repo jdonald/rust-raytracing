@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("  2: Toggle Reflections");
     log::info!("  3: Toggle Refractions");
     log::info!("  4: Toggle Subsurface Scattering");
+    log::info!("  F11: Toggle Fullscreen");
     log::info!("  ESC: Exit");
     log::info!("================");
     log::info!("");
@@ -86,6 +87,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     renderer.resize(size.width, size.height);
                 }
                 WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(key), state, .. }, .. } => {
+                    // Handle F11 for fullscreen toggle
+                    if key == winit::keyboard::KeyCode::F11 && state == winit::event::ElementState::Pressed {
+                        if window.fullscreen().is_some() {
+                            window.set_fullscreen(None);
+                        } else {
+                            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                        }
+                    }
                     renderer.handle_input(key, state);
                 }
                 WindowEvent::RedrawRequested => {
