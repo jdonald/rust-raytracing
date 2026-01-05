@@ -54,29 +54,137 @@ impl VulkanContext {
         let surface_loader = surface::Instance::new(&entry, &instance);
         let surface = unsafe { ash_window::create_surface(&entry, &instance, display_handle, window_handle, None)? };
 
-        // Physical Device
+        // Physical Device Selection with detailed logging
         let pdevices = unsafe { instance.enumerate_physical_devices()? };
-        let (physical_device, queue_family_index) = pdevices
-            .iter()
-            .find_map(|pdevice| {
-                unsafe {
-                    let props = instance.get_physical_device_properties(*pdevice);
-                    let queue_families = instance.get_physical_device_queue_family_properties(*pdevice);
-                    
-                    let q_index = queue_families.iter().enumerate().find(|(_, q)| {
-                        q.queue_flags.contains(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE) &&
-                        surface_loader.get_physical_device_surface_support(*pdevice, 0, surface).unwrap_or(false)
-                    }).map(|(i, _)| i as u32);
 
-                    if props.device_type == vk::PhysicalDeviceType::DISCRETE_GPU && q_index.is_some() {
-                        // Check extensions support (simplified)
-                        Some((*pdevice, q_index.unwrap()))
+        log::info!("Found {} physical device(s)", pdevices.len());
+
+        // Log all available devices
+        for (idx, pdevice) in pdevices.iter().enumerate() {
+            unsafe {
+                let props = instance.get_physical_device_properties(*pdevice);
+                let mem_props = instance.get_physical_device_memory_properties(*pdevice);
+                let device_name = std::ffi::CStr::from_ptr(props.device_name.as_ptr())
+                    .to_string_lossy();
+
+                let device_type = match props.device_type {
+                    vk::PhysicalDeviceType::DISCRETE_GPU => "Discrete GPU",
+                    vk::PhysicalDeviceType::INTEGRATED_GPU => "Integrated GPU",
+                    vk::PhysicalDeviceType::VIRTUAL_GPU => "Virtual GPU",
+                    vk::PhysicalDeviceType::CPU => "CPU",
+                    _ => "Other",
+                };
+
+                // Calculate total VRAM
+                let mut total_vram: u64 = 0;
+                for i in 0..mem_props.memory_heap_count {
+                    let heap = mem_props.memory_heaps[i as usize];
+                    if heap.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL) {
+                        total_vram += heap.size;
+                    }
+                }
+
+                log::info!("  Device {}: {} ({}) - VRAM: {} MB",
+                    idx, device_name, device_type, total_vram / (1024 * 1024));
+
+                // Check raytracing support
+                let available_exts = instance.enumerate_device_extension_properties(*pdevice)
+                    .unwrap_or_default();
+                let has_rt = available_exts.iter().any(|ext| {
+                    let name = std::ffi::CStr::from_ptr(ext.extension_name.as_ptr());
+                    name == vk::KHR_RAY_TRACING_PIPELINE_NAME
+                });
+                let has_as = available_exts.iter().any(|ext| {
+                    let name = std::ffi::CStr::from_ptr(ext.extension_name.as_ptr());
+                    name == vk::KHR_ACCELERATION_STRUCTURE_NAME
+                });
+
+                log::info!("    Ray Tracing: {}, Acceleration Structure: {}", has_rt, has_as);
+            }
+        }
+
+        // Score and select best device
+        let mut scored_devices: Vec<(vk::PhysicalDevice, u32, u32)> = Vec::new();
+
+        for pdevice in pdevices.iter() {
+            unsafe {
+                let props = instance.get_physical_device_properties(*pdevice);
+                let queue_families = instance.get_physical_device_queue_family_properties(*pdevice);
+
+                // Find suitable queue family
+                let q_index = queue_families.iter().enumerate().find_map(|(i, q)| {
+                    let supports_graphics = q.queue_flags.contains(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE);
+                    let supports_present = surface_loader
+                        .get_physical_device_surface_support(*pdevice, i as u32, surface)
+                        .unwrap_or(false);
+
+                    if supports_graphics && supports_present {
+                        Some(i as u32)
                     } else {
                         None
                     }
+                });
+
+                if let Some(queue_idx) = q_index {
+                    // Check required extensions
+                    let available_exts = instance.enumerate_device_extension_properties(*pdevice)
+                        .unwrap_or_default();
+
+                    let required_exts = [
+                        vk::KHR_SWAPCHAIN_NAME,
+                        vk::KHR_ACCELERATION_STRUCTURE_NAME,
+                        vk::KHR_RAY_TRACING_PIPELINE_NAME,
+                        vk::KHR_DEFERRED_HOST_OPERATIONS_NAME,
+                        vk::KHR_BUFFER_DEVICE_ADDRESS_NAME,
+                    ];
+
+                    let has_all_exts = required_exts.iter().all(|required| {
+                        available_exts.iter().any(|ext| {
+                            let name = std::ffi::CStr::from_ptr(ext.extension_name.as_ptr());
+                            name == *required
+                        })
+                    });
+
+                    if has_all_exts {
+                        // Score: discrete GPU = 1000, integrated = 500, other = 100
+                        let mut score = match props.device_type {
+                            vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
+                            vk::PhysicalDeviceType::INTEGRATED_GPU => 500,
+                            _ => 100,
+                        };
+
+                        // Prefer devices with more VRAM
+                        let mem_props = instance.get_physical_device_memory_properties(*pdevice);
+                        for i in 0..mem_props.memory_heap_count {
+                            let heap = mem_props.memory_heaps[i as usize];
+                            if heap.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL) {
+                                score += (heap.size / (1024 * 1024 * 1024)) as u32; // +1 per GB
+                            }
+                        }
+
+                        scored_devices.push((*pdevice, queue_idx, score));
+                    }
                 }
-            })
-            .ok_or("No suitable GPU found")?;
+            }
+        }
+
+        if scored_devices.is_empty() {
+            return Err("No suitable GPU found with required Vulkan ray tracing extensions. \
+                       Required: VK_KHR_ray_tracing_pipeline, VK_KHR_acceleration_structure. \
+                       Please ensure your GPU supports hardware ray tracing and drivers are up to date.".into());
+        }
+
+        // Sort by score (highest first)
+        scored_devices.sort_by(|a, b| b.2.cmp(&a.2));
+
+        let (physical_device, queue_family_index) = (scored_devices[0].0, scored_devices[0].1);
+
+        unsafe {
+            let props = instance.get_physical_device_properties(physical_device);
+            let device_name = std::ffi::CStr::from_ptr(props.device_name.as_ptr())
+                .to_string_lossy();
+            log::info!("Selected GPU: {} (score: {})", device_name, scored_devices[0].2);
+        }
 
         // Device
         let queue_priorities = [1.0];

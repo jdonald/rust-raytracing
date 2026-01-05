@@ -75,17 +75,20 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(window: &Window) -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = VulkanContext::new(window)?;
+
+        log::info!("Creating scene...");
         let scene = Scene::new();
         let camera = Camera::new();
         let settings = Vec4::new(1.0, 1.0, 1.0, 1.0);
 
+        log::info!("Creating command pool...");
         let command_pool_info = vk::CommandPoolCreateInfo {
             queue_family_index: ctx.queue_family_index,
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
             ..Default::default()
         };
         let command_pool = unsafe { ctx.device.create_command_pool(&command_pool_info, None)? };
-        
+
         // Create multiple command buffers (one per frame in flight, simplified to 2)
         let max_frames = 2;
         let alloc_info = vk::CommandBufferAllocateInfo {
@@ -96,6 +99,7 @@ impl Renderer {
         };
         let command_buffers = unsafe { ctx.device.allocate_command_buffers(&alloc_info)? };
 
+        log::info!("Creating scene buffers...");
         // 1. Create Buffers (Scene)
         let (vertex_buffer, vertex_mem, vertex_addr) = create_buffer_with_addr(&ctx, 
             (scene.meshes.iter().map(|m| m.vertices.len()).sum::<usize>() * size_of::<Vertex>()) as u64,
@@ -145,6 +149,7 @@ impl Renderer {
         }
         upload_data(&ctx, scene_desc_mem, &scene_descs);
 
+        log::info!("Building Bottom-Level Acceleration Structures (BLAS) for {} meshes...", scene.meshes.len());
         // 2. BLAS
         let mut blas_list = Vec::new();
         let mut cur_v = 0;
@@ -220,6 +225,7 @@ impl Renderer {
             cur_i += mesh.indices.len();
         }
 
+        log::info!("Building Top-Level Acceleration Structure (TLAS)...");
         // 3. TLAS
         let mut instances = Vec::new();
         for (_i, obj) in scene.objects.iter().enumerate() {
@@ -300,6 +306,7 @@ impl Renderer {
         unsafe { ctx.device.destroy_buffer(scratch_buf, None); ctx.device.free_memory(scratch_mem, None); ctx.device.destroy_buffer(inst_buf, None); ctx.device.free_memory(inst_mem, None); }
         let tlas_res = (tlas, tlas_mem, tlas_buf);
 
+        log::info!("Creating storage image and swapchain...");
         // 4. Images & Swapchain
         let capabilities = unsafe { ctx.surface_loader.get_physical_device_surface_capabilities(ctx.physical_device, ctx.surface)? };
         let format = vk::Format::B8G8R8A8_UNORM;
@@ -370,6 +377,7 @@ impl Renderer {
             }, None).unwrap() }
         }).collect();
 
+        log::info!("Creating descriptors and ray tracing pipeline...");
         // 5. Descriptors & Pipeline
         let descriptor_pool_sizes = [
             vk::DescriptorPoolSize { ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR, descriptor_count: 1 },
@@ -766,10 +774,14 @@ fn create_buffer_with_addr(ctx: &VulkanContext, size: u64, usage: vk::BufferUsag
         sharing_mode: vk::SharingMode::EXCLUSIVE,
         ..Default::default()
     };
+
     let buffer = unsafe { ctx.device.create_buffer(&create_info, None)? };
     let mem_req = unsafe { ctx.device.get_buffer_memory_requirements(buffer) };
     let mem_type_index = find_memory_type(ctx, mem_req.memory_type_bits, props)?;
-    
+
+    log::debug!("Allocating buffer: {} bytes (required: {} bytes, alignment: {})",
+        size, mem_req.size, mem_req.alignment);
+
     let mut flags = vk::MemoryAllocateFlagsInfo {
         flags: vk::MemoryAllocateFlags::DEVICE_ADDRESS,
         ..Default::default()
@@ -780,16 +792,25 @@ fn create_buffer_with_addr(ctx: &VulkanContext, size: u64, usage: vk::BufferUsag
         p_next: &mut flags as *mut _ as *mut _,
         ..Default::default()
     };
-    
-    let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
+
+    let memory = match unsafe { ctx.device.allocate_memory(&alloc_info, None) } {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("Failed to allocate {} bytes of GPU memory (usage: {:?}, props: {:?})",
+                mem_req.size, usage, props);
+            return Err(format!("Memory allocation failed: {} - requested {} MB",
+                e, mem_req.size / (1024 * 1024)).into());
+        }
+    };
+
     unsafe { ctx.device.bind_buffer_memory(buffer, memory, 0)? };
-    
+
     let addr_info = vk::BufferDeviceAddressInfo {
         buffer,
         ..Default::default()
     };
     let addr = unsafe { ctx.device.get_buffer_device_address(&addr_info) };
-    
+
     Ok((buffer, memory, addr))
 }
 

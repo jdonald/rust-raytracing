@@ -12,7 +12,12 @@ use winit::{
 use renderer::Renderer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    log::info!("Starting Rust Vulkan Raytracing Demo");
+    log::info!("Platform: {}", std::env::consts::OS);
 
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new()
@@ -25,7 +30,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
          let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
     }
 
-    let mut renderer = Renderer::new(&window)?;
+    log::info!("Initializing Vulkan renderer...");
+    let mut renderer = match Renderer::new(&window) {
+        Ok(r) => {
+            log::info!("Renderer initialized successfully");
+            r
+        }
+        Err(e) => {
+            log::error!("Failed to initialize renderer: {}", e);
+
+            // Special handling for common errors
+            if e.to_string().contains("INCOMPATIBLE_DRIVER") {
+                log::error!("\nThis error typically means:");
+                log::error!("  - On macOS: Native Vulkan is not supported. You need MoltenVK.");
+                log::error!("  - On Linux/Windows: GPU drivers are outdated or incompatible.");
+                log::error!("  - Ray tracing extensions may not be supported by your GPU.");
+            } else if e.to_string().contains("OUT_OF_DEVICE_MEMORY") ||
+                      e.to_string().contains("OUT_OF_HOST_MEMORY") {
+                log::error!("\nMemory allocation failed. Possible causes:");
+                log::error!("  - GPU does not have enough VRAM for ray tracing structures");
+                log::error!("  - Integrated GPU was selected instead of discrete GPU");
+                log::error!("  - Memory fragmentation or other applications using VRAM");
+                log::error!("  - Try closing other GPU-intensive applications");
+            }
+
+            return Err(e);
+        }
+    };
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
