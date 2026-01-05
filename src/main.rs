@@ -58,6 +58,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Print controls
+    log::info!("");
+    log::info!("=== CONTROLS ===");
+    log::info!("  Mouse: Look around");
+    log::info!("  W/A/S/D: Move horizontally");
+    log::info!("  Q/E: Move up/down");
+    log::info!("  1: Toggle Soft Shadows");
+    log::info!("  2: Toggle Reflections");
+    log::info!("  3: Toggle Refractions");
+    log::info!("  4: Toggle Subsurface Scattering");
+    log::info!("  ESC: Exit");
+    log::info!("================");
+    log::info!("");
+
+    // FPS tracking
+    let mut frame_count = 0u32;
+    let mut last_fps_update = std::time::Instant::now();
+
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
 
@@ -74,6 +92,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(e) = renderer.render(&window) {
                         log::error!("Render error: {}", e);
                         elwt.exit();
+                    }
+
+                    // Update FPS counter
+                    frame_count += 1;
+                    let now = std::time::Instant::now();
+                    let elapsed = now.duration_since(last_fps_update).as_secs_f32();
+                    if elapsed >= 0.5 {
+                        let fps = frame_count as f32 / elapsed;
+                        window.set_title(&format!("Rust Vulkan Raytracing Demo - {:.1} FPS", fps));
+                        frame_count = 0;
+                        last_fps_update = now;
                     }
                 }
                 _ => {

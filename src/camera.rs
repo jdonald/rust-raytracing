@@ -66,6 +66,10 @@ impl Camera {
     }
 
     pub fn proj_matrix(&self, aspect: f32) -> Mat4 {
-        Mat4::perspective_rh(45.0f32.to_radians(), aspect, 0.1, 1000.0)
+        // Vulkan has inverted Y-axis compared to OpenGL
+        let mut proj = Mat4::perspective_rh(45.0f32.to_radians(), aspect, 0.1, 1000.0);
+        // Flip Y-axis for Vulkan's coordinate system
+        proj.y_axis.y *= -1.0;
+        proj
     }
 }
