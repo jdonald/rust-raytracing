@@ -311,7 +311,18 @@ impl Renderer {
         let capabilities = unsafe { ctx.surface_loader.get_physical_device_surface_capabilities(ctx.physical_device, ctx.surface)? };
         let format = vk::Format::B8G8R8A8_UNORM;
         let extent = capabilities.current_extent;
-        
+
+        log::info!("Surface extent: {}x{}", extent.width, extent.height);
+
+        // Validate extent - sometimes window managers report invalid values
+        if extent.width == 0 || extent.height == 0 || extent.width > 16384 || extent.height > 16384 {
+            return Err(format!("Invalid surface extent: {}x{} - window may be minimized or display configuration is unusual",
+                extent.width, extent.height).into());
+        }
+
+        let storage_size_mb = (extent.width as u64 * extent.height as u64 * 4) / (1024 * 1024);
+        log::info!("Creating storage image ({} MB)...", storage_size_mb);
+
         let (storage_image, storage_mem) = create_image(&ctx, extent.width, extent.height, format, vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC)?;
         let storage_view_info = vk::ImageViewCreateInfo {
             image: storage_image,
@@ -828,18 +839,32 @@ fn create_image(ctx: &VulkanContext, width: u32, height: u32, format: vk::Format
         initial_layout: vk::ImageLayout::UNDEFINED,
         ..Default::default()
     };
-    
+
     let image = unsafe { ctx.device.create_image(&create_info, None)? };
     let mem_req = unsafe { ctx.device.get_image_memory_requirements(image) };
+
+    log::debug!("Image memory requirements: {} MB (alignment: {})",
+        mem_req.size / (1024 * 1024), mem_req.alignment);
+
     let mem_type_index = find_memory_type(ctx, mem_req.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)?;
     let alloc_info = vk::MemoryAllocateInfo {
         allocation_size: mem_req.size,
         memory_type_index: mem_type_index,
         ..Default::default()
     };
-    let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
+
+    let memory = match unsafe { ctx.device.allocate_memory(&alloc_info, None) } {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("Failed to allocate image memory: {} MB for {}x{} image",
+                mem_req.size / (1024 * 1024), width, height);
+            return Err(format!("Image allocation failed: {} - requested {} MB",
+                e, mem_req.size / (1024 * 1024)).into());
+        }
+    };
+
     unsafe { ctx.device.bind_image_memory(image, memory, 0)? };
-    
+
     Ok((image, memory))
 }
 

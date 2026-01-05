@@ -34,8 +34,9 @@ The scene is constructed programmatically and includes:
 
 ## Prerequisites
 
-*   **OS**: Linux or Windows. (macOS via MoltenVK is theoretically possible but untested).
+*   **OS**: Linux or Windows recommended. macOS has **limited support** (see macOS section below).
 *   **GPU**: NVIDIA RTX 2060 or newer, or AMD RDNA2+ (RX 6000 series or newer) with Vulkan Ray Tracing support.
+    *   **Note**: Hardware ray tracing requires specific GPU extensions. Integrated GPUs typically do not support ray tracing.
 *   **Drivers**: Latest GPU drivers with Vulkan 1.2+ and Ray Tracing extensions support.
 *   **Rust**: Latest stable toolchain (install via [rustup.rs](https://rustup.rs)).
 *   **Vulkan SDK**: Recommended for shader compilation tools (`glslc`), though this project uses `shaderc` to compile shaders at runtime.
@@ -84,6 +85,36 @@ The scene is constructed programmatically and includes:
   - Run `cargo clean` to remove any cached builds with wrong CRT settings
   - Ensure Visual Studio C++ tools and CMake are properly installed
   - Check that Python 3 is available (required for shaderc build)
+
+### macOS (Limited Support)
+
+**IMPORTANT**: macOS does not support native Vulkan. Ray tracing support is **extremely limited** or unavailable.
+
+1.  **Install MoltenVK** (Vulkan to Metal translation layer):
+    ```bash
+    # Via Homebrew
+    brew install molten-vk
+
+    # Or download Vulkan SDK from https://vulkan.lunarg.com/sdk/home#mac
+    ```
+
+2.  **Set environment variables**:
+    ```bash
+    export VULKAN_SDK="/usr/local"  # Or your Vulkan SDK path
+    export DYLD_LIBRARY_PATH="$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH"
+    export VK_ICD_FILENAMES="$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json"
+    export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
+    ```
+
+3.  **Build and run**:
+    ```bash
+    cargo run --release
+    ```
+
+**Expected Limitations on macOS:**
+- Ray tracing extensions (`VK_KHR_ray_tracing_pipeline`, `VK_KHR_acceleration_structure`) are **not supported** by MoltenVK
+- You will likely see: `ERROR_INCOMPATIBLE_DRIVER` or "No suitable GPU found"
+- This demo requires hardware ray tracing, which is only available on Windows and Linux with compatible GPUs
 
 ## Project Structure
 
