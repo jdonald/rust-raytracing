@@ -313,21 +313,19 @@ impl Renderer {
 
         // Handle special case where surface extent is u32::MAX (means we should use window size)
         let extent = if capabilities.current_extent.width == u32::MAX {
-            // Get physical size (accounts for high-DPI scaling)
+            // On platforms where current_extent is u32::MAX (some Linux/Wayland),
+            // we use window.inner_size() which already returns the correct size
             let window_size = window.inner_size();
-            let scale_factor = window.scale_factor();
-            let physical_width = (window_size.width as f64 * scale_factor) as u32;
-            let physical_height = (window_size.height as f64 * scale_factor) as u32;
 
-            log::info!("Surface extent is undefined ({}), using window size: {}x{} (scale: {:.1}x, physical: {}x{})",
-                u32::MAX, window_size.width, window_size.height, scale_factor, physical_width, physical_height);
+            log::info!("Surface extent is undefined ({}), using window size: {}x{}",
+                u32::MAX, window_size.width, window_size.height);
 
             vk::Extent2D {
-                width: physical_width.clamp(
+                width: window_size.width.clamp(
                     capabilities.min_image_extent.width,
                     capabilities.max_image_extent.width
                 ),
-                height: physical_height.clamp(
+                height: window_size.height.clamp(
                     capabilities.min_image_extent.height,
                     capabilities.max_image_extent.height
                 ),
