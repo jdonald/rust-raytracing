@@ -2,6 +2,8 @@
 
 This project is a real-time raytracing demonstration written in Rust using the Vulkan API (via `ash`). It implements a fully ray-traced pipeline using `VK_KHR_ray_tracing_pipeline` to render a friendly neighborhood scene.
 
+![screenshot](screenshot.png)
+
 ## Features
 
 The demo showcases several raytracing effects, which can be toggled dynamically:
