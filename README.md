@@ -34,13 +34,16 @@ The scene is constructed programmatically and includes:
 
 ## Prerequisites
 
-*   **OS**: Linux or Windows. (macOS via MoltenVK is theoretically possible but untested).
+*   **OS**: Linux or Windows recommended. macOS has **limited support** (see macOS section below).
 *   **GPU**: NVIDIA RTX 2060 or newer, or AMD RDNA2+ (RX 6000 series or newer) with Vulkan Ray Tracing support.
+    *   **Note**: Hardware ray tracing requires specific GPU extensions. Integrated GPUs typically do not support ray tracing.
 *   **Drivers**: Latest GPU drivers with Vulkan 1.2+ and Ray Tracing extensions support.
 *   **Rust**: Latest stable toolchain (install via [rustup.rs](https://rustup.rs)).
 *   **Vulkan SDK**: Recommended for shader compilation tools (`glslc`), though this project uses `shaderc` to compile shaders at runtime.
 
 ## Build & Run
+
+### Linux
 
 1.  **Clone the repository:**
     ```bash
@@ -53,6 +56,65 @@ The scene is constructed programmatically and includes:
     cargo run --release
     ```
     *Note: The `--release` flag is highly recommended for performance.*
+
+### Windows
+
+1.  **Prerequisites:**
+    *   Install [Visual Studio 2019 or 2022](https://visualstudio.microsoft.com/) with the "Desktop development with C++" workload
+    *   Install [CMake](https://cmake.org/download/) (required for building shaderc from source)
+    *   Install [Python 3](https://www.python.org/downloads/) (required for shaderc build scripts)
+    *   Install the [Vulkan SDK](https://vulkan.lunarg.com/) for Windows
+    *   Install Rust via [rustup.rs](https://rustup.rs) using the MSVC toolchain
+
+2.  **Clone the repository:**
+    ```powershell
+    git clone https://github.com/your-username/rust-raytracing.git
+    cd rust-raytracing
+    ```
+
+3.  **Build and run:**
+    ```powershell
+    cargo run --release
+    ```
+
+**Windows Build Notes:**
+- The project builds shaderc from source with dynamic CRT (/MD) to match Rust's default CRT linkage
+- First build will take longer (5-10 minutes) as it compiles the shaderc C++ library
+- The `.cargo/config.toml` and `build.rs` configure the correct CRT settings automatically
+- If you encounter linker errors:
+  - Run `cargo clean` to remove any cached builds with wrong CRT settings
+  - Ensure Visual Studio C++ tools and CMake are properly installed
+  - Check that Python 3 is available (required for shaderc build)
+
+### macOS (Limited Support)
+
+**IMPORTANT**: macOS does not support native Vulkan. Ray tracing support is **extremely limited** or unavailable.
+
+1.  **Install MoltenVK** (Vulkan to Metal translation layer):
+    ```bash
+    # Via Homebrew
+    brew install molten-vk
+
+    # Or download Vulkan SDK from https://vulkan.lunarg.com/sdk/home#mac
+    ```
+
+2.  **Set environment variables**:
+    ```bash
+    export VULKAN_SDK="/usr/local"  # Or your Vulkan SDK path
+    export DYLD_LIBRARY_PATH="$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH"
+    export VK_ICD_FILENAMES="$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json"
+    export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
+    ```
+
+3.  **Build and run**:
+    ```bash
+    cargo run --release
+    ```
+
+**Expected Limitations on macOS:**
+- Ray tracing extensions (`VK_KHR_ray_tracing_pipeline`, `VK_KHR_acceleration_structure`) are **not supported** by MoltenVK
+- You will likely see: `ERROR_INCOMPATIBLE_DRIVER` or "No suitable GPU found"
+- This demo requires hardware ray tracing, which is only available on Windows and Linux with compatible GPUs
 
 ## Project Structure
 
@@ -80,9 +142,16 @@ The scene is constructed programmatically and includes:
 
 ## Troubleshooting
 
-*   **"No suitable GPU found"**: Ensure you have a Vulkan-capable GPU and appropriate drivers installed. If on Linux, check `vulkaninfo`.
+*   **"No suitable GPU found"**: Ensure you have a Vulkan-capable GPU and appropriate drivers installed. If on Linux, check `vulkaninfo`. On Windows, check `vulkaninfoSDK.exe` in your Vulkan SDK installation.
 *   **Crashes on startup**: Check if your GPU supports Hardware Ray Tracing. Some older GPUs support Vulkan but not the specific Ray Tracing extensions required here.
 *   **Shader compilation errors**: The project compiles shaders at runtime using `shaderc`. Ensure the `shaderc` build dependency can find the C++ libraries or built correctly. On Linux, you might need `cmake` and `python3` installed for the build script.
+*   **Windows linker errors (LNK2019, LNK1120)**: These are CRT linkage errors. Solutions:
+    *   Run `cargo clean` to clear any cached builds with incompatible settings
+    *   Verify Visual Studio C++ tools are installed (needed for CMake builds)
+    *   Check that you're using the MSVC toolchain: `rustup default stable-msvc`
+    *   Ensure CMake is installed and in PATH (download from https://cmake.org)
+    *   Ensure Python 3 is installed and in PATH (required for shaderc build)
+    *   Ensure the Vulkan SDK is properly installed and `VULKAN_SDK` environment variable is set
 
 ## License
 

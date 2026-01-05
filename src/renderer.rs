@@ -75,17 +75,20 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(window: &Window) -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = VulkanContext::new(window)?;
+
+        log::info!("Creating scene...");
         let scene = Scene::new();
         let camera = Camera::new();
         let settings = Vec4::new(1.0, 1.0, 1.0, 1.0);
 
+        log::info!("Creating command pool...");
         let command_pool_info = vk::CommandPoolCreateInfo {
             queue_family_index: ctx.queue_family_index,
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
             ..Default::default()
         };
         let command_pool = unsafe { ctx.device.create_command_pool(&command_pool_info, None)? };
-        
+
         // Create multiple command buffers (one per frame in flight, simplified to 2)
         let max_frames = 2;
         let alloc_info = vk::CommandBufferAllocateInfo {
@@ -96,6 +99,7 @@ impl Renderer {
         };
         let command_buffers = unsafe { ctx.device.allocate_command_buffers(&alloc_info)? };
 
+        log::info!("Creating scene buffers...");
         // 1. Create Buffers (Scene)
         let (vertex_buffer, vertex_mem, vertex_addr) = create_buffer_with_addr(&ctx, 
             (scene.meshes.iter().map(|m| m.vertices.len()).sum::<usize>() * size_of::<Vertex>()) as u64,
@@ -145,6 +149,7 @@ impl Renderer {
         }
         upload_data(&ctx, scene_desc_mem, &scene_descs);
 
+        log::info!("Building Bottom-Level Acceleration Structures (BLAS) for {} meshes...", scene.meshes.len());
         // 2. BLAS
         let mut blas_list = Vec::new();
         let mut cur_v = 0;
@@ -220,6 +225,7 @@ impl Renderer {
             cur_i += mesh.indices.len();
         }
 
+        log::info!("Building Top-Level Acceleration Structure (TLAS)...");
         // 3. TLAS
         let mut instances = Vec::new();
         for (_i, obj) in scene.objects.iter().enumerate() {
@@ -300,11 +306,44 @@ impl Renderer {
         unsafe { ctx.device.destroy_buffer(scratch_buf, None); ctx.device.free_memory(scratch_mem, None); ctx.device.destroy_buffer(inst_buf, None); ctx.device.free_memory(inst_mem, None); }
         let tlas_res = (tlas, tlas_mem, tlas_buf);
 
+        log::info!("Creating storage image and swapchain...");
         // 4. Images & Swapchain
         let capabilities = unsafe { ctx.surface_loader.get_physical_device_surface_capabilities(ctx.physical_device, ctx.surface)? };
         let format = vk::Format::B8G8R8A8_UNORM;
-        let extent = capabilities.current_extent;
-        
+
+        // Handle special case where surface extent is u32::MAX (means we should use window size)
+        let extent = if capabilities.current_extent.width == u32::MAX {
+            // On platforms where current_extent is u32::MAX (some Linux/Wayland),
+            // we use window.inner_size() which already returns the correct size
+            let window_size = window.inner_size();
+
+            log::info!("Surface extent is undefined ({}), using window size: {}x{}",
+                u32::MAX, window_size.width, window_size.height);
+
+            vk::Extent2D {
+                width: window_size.width.clamp(
+                    capabilities.min_image_extent.width,
+                    capabilities.max_image_extent.width
+                ),
+                height: window_size.height.clamp(
+                    capabilities.min_image_extent.height,
+                    capabilities.max_image_extent.height
+                ),
+            }
+        } else {
+            log::info!("Surface extent: {}x{}", capabilities.current_extent.width, capabilities.current_extent.height);
+            capabilities.current_extent
+        };
+
+        // Validate extent
+        if extent.width == 0 || extent.height == 0 {
+            return Err(format!("Invalid extent: {}x{} - window may be minimized",
+                extent.width, extent.height).into());
+        }
+
+        let storage_size_mb = (extent.width as u64 * extent.height as u64 * 4) / (1024 * 1024);
+        log::info!("Creating storage image ({} MB)...", storage_size_mb);
+
         let (storage_image, storage_mem) = create_image(&ctx, extent.width, extent.height, format, vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC)?;
         let storage_view_info = vk::ImageViewCreateInfo {
             image: storage_image,
@@ -370,6 +409,7 @@ impl Renderer {
             }, None).unwrap() }
         }).collect();
 
+        log::info!("Creating descriptors and ray tracing pipeline...");
         // 5. Descriptors & Pipeline
         let descriptor_pool_sizes = [
             vk::DescriptorPoolSize { ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR, descriptor_count: 1 },
@@ -766,10 +806,14 @@ fn create_buffer_with_addr(ctx: &VulkanContext, size: u64, usage: vk::BufferUsag
         sharing_mode: vk::SharingMode::EXCLUSIVE,
         ..Default::default()
     };
+
     let buffer = unsafe { ctx.device.create_buffer(&create_info, None)? };
     let mem_req = unsafe { ctx.device.get_buffer_memory_requirements(buffer) };
     let mem_type_index = find_memory_type(ctx, mem_req.memory_type_bits, props)?;
-    
+
+    log::debug!("Allocating buffer: {} bytes (required: {} bytes, alignment: {})",
+        size, mem_req.size, mem_req.alignment);
+
     let mut flags = vk::MemoryAllocateFlagsInfo {
         flags: vk::MemoryAllocateFlags::DEVICE_ADDRESS,
         ..Default::default()
@@ -780,16 +824,25 @@ fn create_buffer_with_addr(ctx: &VulkanContext, size: u64, usage: vk::BufferUsag
         p_next: &mut flags as *mut _ as *mut _,
         ..Default::default()
     };
-    
-    let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
+
+    let memory = match unsafe { ctx.device.allocate_memory(&alloc_info, None) } {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("Failed to allocate {} bytes of GPU memory (usage: {:?}, props: {:?})",
+                mem_req.size, usage, props);
+            return Err(format!("Memory allocation failed: {} - requested {} MB",
+                e, mem_req.size / (1024 * 1024)).into());
+        }
+    };
+
     unsafe { ctx.device.bind_buffer_memory(buffer, memory, 0)? };
-    
+
     let addr_info = vk::BufferDeviceAddressInfo {
         buffer,
         ..Default::default()
     };
     let addr = unsafe { ctx.device.get_buffer_device_address(&addr_info) };
-    
+
     Ok((buffer, memory, addr))
 }
 
@@ -807,18 +860,32 @@ fn create_image(ctx: &VulkanContext, width: u32, height: u32, format: vk::Format
         initial_layout: vk::ImageLayout::UNDEFINED,
         ..Default::default()
     };
-    
+
     let image = unsafe { ctx.device.create_image(&create_info, None)? };
     let mem_req = unsafe { ctx.device.get_image_memory_requirements(image) };
+
+    log::debug!("Image memory requirements: {} MB (alignment: {})",
+        mem_req.size / (1024 * 1024), mem_req.alignment);
+
     let mem_type_index = find_memory_type(ctx, mem_req.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)?;
     let alloc_info = vk::MemoryAllocateInfo {
         allocation_size: mem_req.size,
         memory_type_index: mem_type_index,
         ..Default::default()
     };
-    let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
+
+    let memory = match unsafe { ctx.device.allocate_memory(&alloc_info, None) } {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("Failed to allocate image memory: {} MB for {}x{} image",
+                mem_req.size / (1024 * 1024), width, height);
+            return Err(format!("Image allocation failed: {} - requested {} MB",
+                e, mem_req.size / (1024 * 1024)).into());
+        }
+    };
+
     unsafe { ctx.device.bind_image_memory(image, memory, 0)? };
-    
+
     Ok((image, memory))
 }
 
