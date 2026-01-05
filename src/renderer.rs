@@ -310,13 +310,30 @@ impl Renderer {
         // 4. Images & Swapchain
         let capabilities = unsafe { ctx.surface_loader.get_physical_device_surface_capabilities(ctx.physical_device, ctx.surface)? };
         let format = vk::Format::B8G8R8A8_UNORM;
-        let extent = capabilities.current_extent;
 
-        log::info!("Surface extent: {}x{}", extent.width, extent.height);
+        // Handle special case where surface extent is u32::MAX (means we should use window size)
+        let extent = if capabilities.current_extent.width == u32::MAX {
+            let window_size = window.inner_size();
+            log::info!("Surface extent is undefined ({}), using window size: {}x{}",
+                u32::MAX, window_size.width, window_size.height);
+            vk::Extent2D {
+                width: window_size.width.clamp(
+                    capabilities.min_image_extent.width,
+                    capabilities.max_image_extent.width
+                ),
+                height: window_size.height.clamp(
+                    capabilities.min_image_extent.height,
+                    capabilities.max_image_extent.height
+                ),
+            }
+        } else {
+            log::info!("Surface extent: {}x{}", capabilities.current_extent.width, capabilities.current_extent.height);
+            capabilities.current_extent
+        };
 
-        // Validate extent - sometimes window managers report invalid values
-        if extent.width == 0 || extent.height == 0 || extent.width > 16384 || extent.height > 16384 {
-            return Err(format!("Invalid surface extent: {}x{} - window may be minimized or display configuration is unusual",
+        // Validate extent
+        if extent.width == 0 || extent.height == 0 {
+            return Err(format!("Invalid extent: {}x{} - window may be minimized",
                 extent.width, extent.height).into());
         }
 
