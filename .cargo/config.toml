@@ -1,0 +1,12 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    # Link against the legacy stdio definitions that provide the missing symbols
+    "-C", "link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib",
+    # Explicitly use the dynamic MSVC runtime
+    "-C", "target-feature=-crt-static",
+]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    "-C", "link-arg=-lmsvcrt",
+]

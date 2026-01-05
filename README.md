@@ -42,6 +42,8 @@ The scene is constructed programmatically and includes:
 
 ## Build & Run
 
+### Linux
+
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/your-username/rust-raytracing.git
@@ -53,6 +55,29 @@ The scene is constructed programmatically and includes:
     cargo run --release
     ```
     *Note: The `--release` flag is highly recommended for performance.*
+
+### Windows
+
+1.  **Prerequisites:**
+    *   Install [Visual Studio 2019 or 2022](https://visualstudio.microsoft.com/) with the "Desktop development with C++" workload
+    *   Install the [Vulkan SDK](https://vulkan.lunarg.com/) for Windows
+    *   Install Rust via [rustup.rs](https://rustup.rs)
+
+2.  **Clone the repository:**
+    ```powershell
+    git clone https://github.com/your-username/rust-raytracing.git
+    cd rust-raytracing
+    ```
+
+3.  **Build and run:**
+    ```powershell
+    cargo run --release
+    ```
+
+**Windows Build Notes:**
+- The project includes a `build.rs` script and `.cargo/config.toml` to handle MSVC linker requirements for the shaderc library
+- If you encounter linker errors, ensure Visual Studio C++ tools are properly installed
+- The build automatically links against `legacy_stdio_definitions.lib` and `msvcprt.lib` to resolve C runtime symbols
 
 ## Project Structure
 
@@ -80,9 +105,13 @@ The scene is constructed programmatically and includes:
 
 ## Troubleshooting
 
-*   **"No suitable GPU found"**: Ensure you have a Vulkan-capable GPU and appropriate drivers installed. If on Linux, check `vulkaninfo`.
+*   **"No suitable GPU found"**: Ensure you have a Vulkan-capable GPU and appropriate drivers installed. If on Linux, check `vulkaninfo`. On Windows, check `vulkaninfoSDK.exe` in your Vulkan SDK installation.
 *   **Crashes on startup**: Check if your GPU supports Hardware Ray Tracing. Some older GPUs support Vulkan but not the specific Ray Tracing extensions required here.
 *   **Shader compilation errors**: The project compiles shaders at runtime using `shaderc`. Ensure the `shaderc` build dependency can find the C++ libraries or built correctly. On Linux, you might need `cmake` and `python3` installed for the build script.
+*   **Windows linker errors (LNK2019, LNK1120)**: These are usually resolved by the included `build.rs` and `.cargo/config.toml`. If they persist:
+    *   Verify Visual Studio C++ tools are installed
+    *   Check that you're using the MSVC toolchain: `rustup default stable-msvc`
+    *   Ensure the Vulkan SDK is properly installed and `VULKAN_SDK` environment variable is set
 
 ## License
 
